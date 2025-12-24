@@ -1,7 +1,10 @@
 const http = require('http');
+const mineflayer = require('mineflayer');
+const config = require('./config.json');
 
 const PORT = process.env.PORT || 3000;
 
+// 🌐 HTTP Keep Alive Server
 http.createServer((req, res) => {
   res.writeHead(200, { 'Content-Type': 'text/plain' });
   res.end('Mineflayer bot is running\n');
@@ -9,69 +12,73 @@ http.createServer((req, res) => {
   console.log(`🌐 HTTP server running on port ${PORT}`);
 });
 
-const mineflayer = require('mineflayer');
-const config = require('./config.json');
-
-const bot = mineflayer.createBot({
-  host: config.serverHost,
-  port: config.serverPort,
-  username: config.botUsername,
-  auth: 'offline',
-  version: false,
-  viewDistance: config.botChunk
-});
-
+let bot;
 let movementPhase = 0;
+
 const STEP_INTERVAL = 1500;
-const STEP_SPEED    = 1;
 const JUMP_DURATION = 500;
+const RECONNECT_DELAY = 5000; // 5 seconds
 
-bot.on('spawn', () => {
-  setTimeout(() => {
-    bot.setControlState('sneak', true);
-    console.log(`✅ ${config.botUsername} is Ready!`);
-  }, 3000);
+function startBot() {
+  console.log('🔄 Connecting bot...');
 
-  setTimeout(movementCycle, STEP_INTERVAL);
-});
+  bot = mineflayer.createBot({
+    host: config.serverHost,
+    port: config.serverPort,
+    username: config.botUsername,
+    auth: 'offline',
+    version: false,
+    viewDistance: config.botChunk
+  });
 
+  bot.on('spawn', () => {
+    console.log(`✅ ${config.botUsername} spawned`);
+
+    setTimeout(() => {
+      bot.setControlState('sneak', true);
+    }, 3000);
+
+    setTimeout(movementCycle, STEP_INTERVAL);
+  });
+
+  bot.on('kicked', (reason) => {
+    console.log('🚫 Kicked from server:', reason.toString());
+  });
+
+  bot.on('error', (err) => {
+    console.log('⚠️ Error:', err.message);
+  });
+
+  bot.on('end', () => {
+    console.log(`⛔ Disconnected. Reconnecting in ${RECONNECT_DELAY / 1000}s...`);
+    setTimeout(startBot, RECONNECT_DELAY);
+  });
+}
+
+// 🕺 Anti-AFK movement
 function movementCycle() {
-  if (!bot.entity) return;
+  if (!bot || !bot.entity) return;
+
+  bot.clearControlStates();
 
   switch (movementPhase) {
     case 0:
       bot.setControlState('forward', true);
-      bot.setControlState('back', false);
-      bot.setControlState('jump', false);
       break;
     case 1:
-      bot.setControlState('forward', false);
       bot.setControlState('back', true);
-      bot.setControlState('jump', false);
       break;
     case 2:
-      bot.setControlState('forward', false);
-      bot.setControlState('back', false);
       bot.setControlState('jump', true);
-      setTimeout(() => {
-        bot.setControlState('jump', false);
-      }, JUMP_DURATION);
+      setTimeout(() => bot.setControlState('jump', false), JUMP_DURATION);
       break;
-    case 3:
-      bot.setControlState('forward', false);
-      bot.setControlState('back', false);
-      bot.setControlState('jump', false);
+    default:
       break;
   }
 
   movementPhase = (movementPhase + 1) % 4;
-
   setTimeout(movementCycle, STEP_INTERVAL);
 }
 
-bot.on('error', (err) => {
-  console.error('⚠️ Error:', err);
-});
-bot.on('end', () => {
-  console.log('⛔️ Bot Disconnected!');
-});
+// 🚀 Start bot
+startBot();
